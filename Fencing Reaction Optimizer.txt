@@ -1,0 +1,561 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Fencing Reaction Trainer — 8方向 + Dot</title>
+<style>
+  :root{--bg:#071023;--card:#f8fafc;--muted:#64748b;}
+  html,body{height:100%;margin:0;font-family:Inter,system-ui,Segoe UI,Arial;}
+  body{background:linear-gradient(180deg,#061021,#0b1220);display:flex;align-items:center;justify-content:center;color:#061021;}
+  .app{width:760px;max-width:96vw;background:var(--card);border-radius:16px;padding:18px;box-shadow:0 18px 40px rgba(2,6,23,0.5);}
+  h1{margin:0 0 6px;font-size:20px}
+  .row{display:flex;gap:8px;align-items:center;}
+  .controls{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;}
+  .panel{background:#fff;padding:10px;border-radius:10px;box-shadow:0 6px 18px rgba(2,6,23,0.06);flex:1;min-width:260px;}
+  label{font-size:13px;color:var(--muted);display:block;margin-bottom:6px}
+  input[type=number], input[type=text]{width:100%;padding:8px;border-radius:8px;border:1px solid #e6eef8}
+  button{cursor:pointer;padding:10px 12px;border-radius:10px;border:0;background:#0ea5a1;color:#fff;font-weight:700}
+  .big{padding:14px 18px;font-size:16px}
+  .stim-area{height:420px;border-radius:12px;background:linear-gradient(180deg,#e6eef8,#ffffff);margin:14px 0;display:flex;align-items:center;justify-content:center;position:relative}
+  .grid{width:320px;height:320px;display:grid;grid-template-columns:1fr 1fr 1fr;grid-template-rows:1fr 1fr 1fr;gap:12px;align-items:center;justify-items:center}
+  .dir-btn{width:92px;height:92px;border-radius:12px;border:2px solid #e6eef8;background:#fff;font-size:28px;display:flex;align-items:center;justify-content:center;user-select:none}
+  .center-dot{width:86px;height:86px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:22px}
+  .green{background:#16a34a;color:white}
+  .red{background:#ef4444;color:white}
+  .disabled{opacity:0.5;pointer-events:none}
+  .feedback{position:absolute;bottom:14px;font-weight:700;font-size:16px}
+  .small{font-size:13px;color:var(--muted)}
+  pre{background:#071023;color:#e6eef8;padding:8px;border-radius:8px;overflow:auto;font-size:12px}
+  .stats{margin-top:8px;display:flex;gap:8px;flex-wrap:wrap}
+  .stat-card{background:#fbfdff;padding:8px;border-radius:8px;min-width:160px}
+  @media (max-width:800px){
+    .app{padding:12px}
+    .stim-area{height:300px}
+    .grid{width:260px;height:260px}
+    .dir-btn{width:70px;height:70px;font-size:20px}
+    .center-dot{width:64px;height:64px;font-size:18px}
+  }
+</style>
+</head>
+<body>
+  <div class="app" role="application" aria-label="Fencing Reaction Trainer">
+    <h1>Fencing Reaction Trainer — 8方向 + Dot</h1>
+    <div class="small">训练用途：帮助击剑运动员提升方向反应与专注（记录 RT / 准确率 / 虚假反应）。</div>
+
+    <div class="controls">
+      <div class="panel">
+        <label>参数配置</label>
+        <div style="display:flex;gap:8px;">
+          <div style="flex:1">
+            <label>Trials</label>
+            <input id="trialsTotal" type="number" value="40" min="1">
+          </div>
+          <div style="flex:1">
+            <label>Stim(ms)</label>
+            <input id="stimMs" type="number" value="500" min="50">
+          </div>
+          <div style="flex:1">
+            <label>RespWin(ms)</label>
+            <input id="respMs" type="number" value="900" min="50">
+          </div>
+        </div>
+        <div style="display:flex;gap:8px;margin-top:8px;">
+          <div style="flex:1">
+            <label>ITI(ms)</label>
+            <input id="itiMs" type="number" value="600" min="0">
+          </div>
+          <div style="flex:1">
+            <label>Warmup Trials</label>
+            <input id="warmup" type="number" value="6" min="0">
+          </div>
+        </div>
+
+        <div style="margin-top:10px">
+          <label>概率（0~1，总和 ≤ 1）</label>
+          <div style="display:flex;gap:8px;flex-wrap:wrap">
+            <input id="probDirs" type="text" value="0.6" title="Proportion for direction stimuli (remaining split evenly into 8 directions)">
+            <small class="small" style="align-self:center">dir fraction（剩余分给8方向）</small>
+            <input id="probGreen" type="number" step="0.01" value="0.15">
+            <small class="small" style="align-self:center">green dot</small>
+            <input id="probRed" type="number" step="0.01" value="0.25">
+            <small class="small" style="align-self:center">red dot</small>
+          </div>
+        </div>
+
+        <div style="display:flex;gap:8px;margin-top:12px;">
+          <button id="startBtn" class="big">Start</button>
+          <button id="stopBtn" class="big" style="background:#64748b">Stop</button>
+          <button id="exportBtn" class="big" style="background:#ef4444">Export JSON</button>
+        </div>
+
+        <div style="margin-top:10px" class="small">键盘支持：方向键 = ↑↓←→ ，对角：Q↖ E↗ Z↙ C↘ ，中点：Space/Enter（按下表示点击中心绿点）</div>
+      </div>
+
+      <div class="panel">
+        <label>即时进度</label>
+        <div id="progress" style="font-weight:700">Trial 0 / 0</div>
+        <div style="margin-top:8px" id="modeInfo" class="small">模式：正式</div>
+
+        <div class="stats">
+          <div class="stat-card"><div class="small">Avg RT (ms)</div><div id="avgRt" style="font-weight:800">-</div></div>
+          <div class="stat-card"><div class="small">Accuracy</div><div id="acc" style="font-weight:800">-</div></div>
+          <div class="stat-card"><div class="small">False Reactions</div><div id="falseCount" style="font-weight:800">0</div></div>
+          <div class="stat-card"><div class="small">Misses</div><div id="misses" style="font-weight:800">0</div></div>
+        </div>
+
+        <details style="margin-top:10px">
+          <summary>详细日志（调试）</summary>
+          <pre id="debugOut">[]</pre>
+        </details>
+      </div>
+    </div>
+
+    <div class="stim-area" id="stimArea" aria-live="polite">
+      <div class="grid" id="grid">
+        <!-- Row 1 -->
+        <div id="btn_ul" class="dir-btn">↖</div>
+        <div id="btn_up" class="dir-btn">↑</div>
+        <div id="btn_ur" class="dir-btn">↗</div>
+        <!-- Row 2 -->
+        <div id="btn_left" class="dir-btn">←</div>
+        <div id="btn_center" class="center-dot" style="background:#f3f4f6">准备</div>
+        <div id="btn_right" class="dir-btn">→</div>
+        <!-- Row 3 -->
+        <div id="btn_dl" class="dir-btn">↙</div>
+        <div id="btn_down" class="dir-btn">↓</div>
+        <div id="btn_dr" class="dir-btn">↘</div>
+      </div>
+      <div class="feedback" id="feedback"></div>
+    </div>
+
+    <div style="display:flex;gap:8px;margin-top:6px">
+      <div class="panel" style="flex:1">
+        <label>说明 / 建议</label>
+        <div class="small">推荐：先做 warmup (6 trials) 以熟悉按钮位置；正式测试保持安静与集中。参数建议：Stim 400~600 ms；RespWin 800~1000 ms；green prob 0.1~0.2；red prob 0.15~0.3。</div>
+      </div>
+
+      <div class="panel" style="flex:1">
+        <label>结果导出</label>
+        <div class="small">按 Export JSON 导出全部 trial 记录（可用于教练分析）。</div>
+      </div>
+    </div>
+  </div>
+
+<script>
+/* ====== 状态与参数 ====== */
+const cfg = {
+  trialsTotal: 40,
+  stimMs: 500,
+  respMs: 900,
+  itiMs: 600,
+  warmup: 6,
+  probDirs: 0.6, // 概率份额，剩下分配给 green/red
+  probGreen: 0.15,
+  probRed: 0.25,
+};
+
+let state = {
+  sequence: [],
+  trialIndex: 0,
+  inTrial: false,
+  stimulusStart: 0,
+  currentStim: null, // 'UL','U','UR','L','R','DL','D','DR','GREEN','RED'
+  hasResponded: false,
+  results: [],
+  stopped: false,
+  practice: false,
+};
+
+/* ====== DOM elements ====== */
+const els = {
+  trialsTotal: document.getElementById('trialsTotal'),
+  stimMs: document.getElementById('stimMs'),
+  respMs: document.getElementById('respMs'),
+  itiMs: document.getElementById('itiMs'),
+  warmup: document.getElementById('warmup'),
+  probDirs: document.getElementById('probDirs'),
+  probGreen: document.getElementById('probGreen'),
+  probRed: document.getElementById('probRed'),
+  startBtn: document.getElementById('startBtn'),
+  stopBtn: document.getElementById('stopBtn'),
+  exportBtn: document.getElementById('exportBtn'),
+  progress: document.getElementById('progress'),
+  avgRt: document.getElementById('avgRt'),
+  acc: document.getElementById('acc'),
+  falseCount: document.getElementById('falseCount'),
+  misses: document.getElementById('misses'),
+  debugOut: document.getElementById('debugOut'),
+  feedback: document.getElementById('feedback'),
+  center: document.getElementById('btn_center'),
+  dirButtons: {
+    UL: document.getElementById('btn_ul'),
+    U: document.getElementById('btn_up'),
+    UR: document.getElementById('btn_ur'),
+    L: document.getElementById('btn_left'),
+    R: document.getElementById('btn_right'),
+    DL: document.getElementById('btn_dl'),
+    D: document.getElementById('btn_down'),
+    DR: document.getElementById('btn_dr'),
+  }
+};
+
+/* ====== 辅助函数 ====== */
+function updateCfgFromUI() {
+  cfg.trialsTotal = Math.max(1, parseInt(els.trialsTotal.value) || 40);
+  cfg.stimMs = Math.max(50, parseInt(els.stimMs.value) || 500);
+  cfg.respMs = Math.max(50, parseInt(els.respMs.value) || 900);
+  cfg.itiMs = Math.max(0, parseInt(els.itiMs.value) || 600);
+  cfg.warmup = Math.max(0, parseInt(els.warmup.value) || 6);
+  cfg.probDirs = parseFloat(els.probDirs.value) || 0.6;
+  cfg.probGreen = parseFloat(els.probGreen.value) || 0.15;
+  cfg.probRed = parseFloat(els.probRed.value) || 0.25;
+  // normalize if >1
+  const total = cfg.probDirs + cfg.probGreen + cfg.probRed;
+  if (total > 1) {
+    cfg.probDirs /= total; cfg.probGreen /= total; cfg.probRed /= total;
+  }
+}
+
+/* 生成单个 trial stimulus */
+function sampleStimulus() {
+  const r = Math.random();
+  if (r < cfg.probGreen) return 'GREEN';
+  if (r < cfg.probGreen + cfg.probRed) return 'RED';
+  // else pick direction, split remaining equally among 8 directions
+  const dirs = ['UL','U','UR','L','R','DL','D','DR'];
+  return dirs[Math.floor(Math.random() * dirs.length)];
+}
+
+/* 生成完整序列 */
+function generateSequence(n) {
+  const seq = [];
+  for (let i=0;i<n;i++) seq.push(sampleStimulus());
+  return seq;
+}
+
+/* 显示刺激到 UI（按钮高亮或中心变色）*/
+function renderStim(stim) {
+  // reset styles
+  Object.values(els.dirButtons).forEach(b => { b.classList.remove('green'); b.classList.remove('red'); b.classList.remove('disabled'); });
+  els.center.style.background = '#f3f4f6';
+  els.center.textContent = '';
+  // clear feedback
+  els.feedback.textContent = '';
+  if (!stim) {
+    // blank
+    Object.values(els.dirButtons).forEach(b => b.style.opacity = '0.9');
+    return;
+  }
+  if (['UL','U','UR','L','R','DL','D','DR'].includes(stim)) {
+    // highlight the corresponding button (green shade)
+    els.dirButtons[stim].classList.add('green');
+    els.dirButtons[stim].style.opacity = '1';
+  } else if (stim === 'GREEN') {
+    els.center.classList.add('green');
+    els.center.textContent = '●';
+  } else if (stim === 'RED') {
+    els.center.classList.add('red');
+    els.center.textContent = '●';
+  }
+}
+
+/* 当 trial 结束，记录 result object 并更新 summary */
+function recordResult(result) {
+  state.results.push(result);
+  els.debugOut.textContent = JSON.stringify(state.results, null, 2);
+  updateSummary();
+}
+
+/* 汇总统计 */
+function updateSummary() {
+  const arr = state.results;
+  const total = arr.length;
+  const rtList = arr.filter(r => r.rt_ms !== null).map(r => r.rt_ms);
+  const avg = rtList.length ? Math.round(rtList.reduce((a,b)=>a+b,0)/rtList.length) : '-';
+  const correctCount = arr.filter(r => r.correct).length;
+  const acc = arr.length ? (Math.round(1000*correctCount/arr.length)/10)+'%' : '-';
+  const falseCount = arr.filter(r => r.false_reaction).length;
+  const misses = arr.filter(r => r.response === 'None' && r.stimulus !== 'GREEN').length;
+  els.avgRt.textContent = avg;
+  els.acc.textContent = acc;
+  els.falseCount.textContent = falseCount;
+  els.misses.textContent = misses;
+}
+
+/* 重置 UI/状态 */
+function resetState() {
+  state.sequence = [];
+  state.trialIndex = 0;
+  state.inTrial = false;
+  state.stimulusStart = 0;
+  state.currentStim = null;
+  state.hasResponded = false;
+  state.results = [];
+  state.stopped = false;
+  updateSummary();
+  renderStim(null);
+  els.center.classList.remove('green','red');
+  els.center.textContent = '准备';
+}
+
+/* 处理一次响应（用户按按钮或中心点击）*/
+function handleResponse(responseCode) {
+  if (!state.inTrial) return; // ignore
+  if (state.hasResponded) return; // only first response counts
+  const now = performance.now();
+  const stim = state.currentStim;
+  state.hasResponded = true;
+
+  // compute rt if applicable
+  let rt = null;
+  if (stim && (responseCode !== 'None')) {
+    rt = Math.round(now - state.stimulusStart);
+  }
+  let correct = false;
+  let falseReaction = false;
+
+  if (stim === 'GREEN') {
+    // correct only if user clicked center (we expect responseCode === 'CENTER')
+    if (responseCode === 'CENTER') correct = true;
+    else correct = false;
+  } else if (stim === 'RED') {
+    // correct only if user DID NOT press (but here user pressed) -> false reaction
+    falseReaction = true;
+    correct = false;
+  } else {
+    // stim is a direction
+    if (responseCode === stim) correct = true;
+    else correct = false;
+  }
+
+  const rec = {
+    trial: state.trialIndex,
+    stimulus: stim,
+    response: responseCode,
+    rt_ms: rt,
+    correct: correct,
+    false_reaction: falseReaction,
+    timestamp: new Date().toISOString()
+  };
+  recordResult(rec);
+  // show feedback
+  if (correct) {
+    els.feedback.textContent = 'Correct';
+    els.feedback.style.color = '#16a34a';
+  } else {
+    if (falseReaction) {
+      els.feedback.textContent = 'False Reaction (should NOT press)';
+      els.feedback.style.color = '#ef4444';
+    } else {
+      els.feedback.textContent = 'Incorrect / Miss';
+      els.feedback.style.color = '#ef4444';
+    }
+  }
+  // disable further responses for this trial visually
+  disableAllButtons();
+  // schedule end of trial after remaining ITI
+}
+
+/* 无响应超时处理 */
+function handleNoResponse() {
+  // if no response during resp window
+  if (!state.inTrial) return;
+  if (state.hasResponded) return;
+  const stim = state.currentStim;
+  // No response recorded
+  let correct = false;
+  if (stim === 'RED') {
+    // correct: didn't press on red
+    correct = true;
+  } else if (stim === 'GREEN') {
+    // missed green (should have pressed)
+    correct = false;
+  } else {
+    // direction missed -> incorrect
+    correct = false;
+  }
+  const rec = {
+    trial: state.trialIndex,
+    stimulus: stim,
+    response: 'None',
+    rt_ms: null,
+    correct: correct,
+    false_reaction: false,
+    timestamp: new Date().toISOString()
+  };
+  recordResult(rec);
+  // feedback
+  if (correct) {
+    els.feedback.textContent = 'Correct (no press)';
+    els.feedback.style.color = '#16a34a';
+  } else {
+    els.feedback.textContent = 'Miss';
+    els.feedback.style.color = '#ef4444';
+  }
+  disableAllButtons();
+}
+
+/* disable/enable */
+function disableAllButtons() {
+  Object.values(els.dirButtons).forEach(b => b.classList.add('disabled'));
+  els.center.classList.add('disabled');
+}
+function enableAllButtons() {
+  Object.values(els.dirButtons).forEach(b => b.classList.remove('disabled'));
+  els.center.classList.remove('disabled');
+}
+
+/* run single trial: show stim, wait stimMs (visual) then wait remainder of resp window, then handle no response if none */
+async function runTrial() {
+  if (state.stopped) return;
+  if (state.trialIndex >= state.sequence.length) {
+    finishRun();
+    return;
+  }
+  state.inTrial = true;
+  state.hasResponded = false;
+  const stim = state.sequence[state.trialIndex];
+  state.currentStim = stim;
+  renderStim(stim);
+  enableAllButtons();
+  state.stimulusStart = performance.now();
+  // show stimulus for stimMs (visual) — we will keep stimulus value for evaluation until resp window ends
+  await new Promise(res => setTimeout(res, cfg.stimMs));
+  // optionally visually hide stimulus but keep value: we'll dim buttons
+  // renderStim(null); // keep commented so UI indicates stimulus still present
+  // wait remaining of resp window
+  const remaining = Math.max(0, cfg.respMs - cfg.stimMs);
+  await new Promise(res => setTimeout(res, remaining));
+  // after response window
+  if (!state.hasResponded) {
+    handleNoResponse();
+  }
+  // finish trial: increment index and wait ITI then next trial
+  state.inTrial = false;
+  state.trialIndex++;
+  updateProgressDisplay();
+  await new Promise(res => setTimeout(res, cfg.itiMs));
+  if (state.trialIndex < state.sequence.length && !state.stopped) {
+    // next
+    runTrial();
+  } else {
+    finishRun();
+  }
+}
+
+/* 开始整个 run（含 warmup and main） */
+function startRun() {
+  updateCfgFromUI();
+  resetState();
+  state.stopped = false;
+  // build sequence: warmup + main
+  const total = cfg.trialsTotal;
+  const warm = cfg.warmup || 0;
+  const seqWarm = generateSequence(warm);
+  const seqMain = generateSequence(total);
+  state.sequence = seqWarm.concat(seqMain);
+  state.trialIndex = 0;
+  updateProgressDisplay();
+  // run first trial
+  runTrial();
+}
+
+/* 结束 run 的处理 */
+function finishRun() {
+  state.inTrial = false;
+  state.stopped = true;
+  renderStim(null);
+  els.center.classList.remove('green','red');
+  els.center.textContent = '完成';
+  // final summary already updated incrementally
+}
+
+/* 更新进度显示 */
+function updateProgressDisplay() {
+  els.progress.textContent = `Trial ${Math.min(state.trialIndex+1, state.sequence.length)} / ${state.sequence.length}`;
+}
+
+/* 导出 JSON */
+function exportJSON() {
+  const payload = {
+    metadata: {
+      created: new Date().toISOString(),
+      trialsPlanned: cfg.trialsTotal,
+      stimMs: cfg.stimMs,
+      respMs: cfg.respMs,
+      itiMs: cfg.itiMs,
+      probs: {dirs: cfg.probDirs, green: cfg.probGreen, red: cfg.probRed}
+    },
+    results: state.results
+  };
+  const blob = new Blob([JSON.stringify(payload, null, 2)], {type:'application/json'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = `fencing_reaction_${new Date().toISOString()}.json`; a.click();
+  URL.revokeObjectURL(url);
+}
+
+/* ====== 事件绑定 ====== */
+// buttons click map to response codes
+Object.entries(els.dirButtons).forEach(([code, btn]) => {
+  btn.addEventListener('click', ()=> {
+    handleResponse(code);
+    // optionally disable further press
+  });
+});
+els.center.addEventListener('click', ()=> {
+  // center clicked -> response code 'CENTER' mapped to 'CENTER' which we treat as 'CENTER'
+  // but our logic expects 'CENTER' to match GREEN
+  handleResponse('CENTER' === 'CENTER' ? 'CENTER' : 'CENTER'); // keep explicit
+});
+
+/* keyboard mapping */
+window.addEventListener('keydown', (e) => {
+  const key = e.key.toLowerCase();
+  if (!state.inTrial) return;
+  const map = {
+    'arrowup': 'U',
+    'arrowdown': 'D',
+    'arrowleft': 'L',
+    'arrowright': 'R',
+    'q': 'UL', 'e': 'UR', 'z': 'DL', 'c': 'DR',
+    ' ': 'CENTER', 'enter': 'CENTER'
+  };
+  if (map[key]) {
+    handleResponse(map[key]);
+  }
+});
+
+/* Start/Stop/Export actions */
+els.startBtn.addEventListener('click', ()=> {
+  updateCfgFromUI();
+  // map cfg to local convenience
+  cfg.trialsTotal = Math.max(1, parseInt(els.trialsTotal.value)||40);
+  cfg.stimMs = Math.max(50, parseInt(els.stimMs.value)||500);
+  cfg.respMs = Math.max(50, parseInt(els.respMs.value)||900);
+  cfg.itiMs = Math.max(0, parseInt(els.itiMs.value)||600);
+  cfg.warmup = Math.max(0, parseInt(els.warmup.value)||6);
+  cfg.probDirs = parseFloat(els.probDirs.value)||0.6;
+  cfg.probGreen = parseFloat(els.probGreen.value)||0.15;
+  cfg.probRed = parseFloat(els.probRed.value)||0.25;
+  const totalProb = cfg.probDirs + cfg.probGreen + cfg.probRed;
+  if (totalProb > 1) {
+    // normalize
+    cfg.probDirs /= totalProb; cfg.probGreen /= totalProb; cfg.probRed /= totalProb;
+  }
+  startRun();
+});
+els.stopBtn.addEventListener('click', ()=> {
+  state.stopped = true;
+  // allow current trial to finish but prevent next
+});
+els.exportBtn.addEventListener('click', exportJSON);
+
+/* 初始化 */
+resetState();
+updateSummary();
+
+</script>
+</body>
+</html>
